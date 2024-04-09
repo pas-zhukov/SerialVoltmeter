@@ -1,25 +1,26 @@
+# https://stackoverflow.com/questions/35932660/qcombobox-click-event обновление по клику
+
 from PyQt5 import QtWidgets, uic
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 from PyQt5.QtCore import QIODevice
 
 from models import VoltageRange
-# https://stackoverflow.com/questions/35932660/qcombobox-click-event обновление по клику
 
-app = QtWidgets.QApplication([])
-ui = uic.loadUi("mainForm.ui")
-ui.setWindowTitle("SerialGUI")
+def main():
+    app = QtWidgets.QApplication([])
+    ui = uic.loadUi("mainForm.ui")
+    ui.setWindowTitle("SerialGUI")
 
-serial = QSerialPort()
-serial.setBaudRate(115200)
+    serial = QSerialPort()
+    serial.setBaudRate(115200)
 
-ui.recordRange.addItems(list(map(VoltageRange.RANGES, str)))
-# прочитать порт
-def onRead():
+    ui.recordRange.addItems(list(map(VoltageRange.RANGES, str)))
+
+
+def parse_serial():
     if not serial.canReadLine(): return
-    rx = serial.readLine()
-    data = str(rx, 'utf-8').strip().split(',')  # подрезать и разбить по запятым
+    data = str(serial.readLine())[2:-5].strip().split(",")
 
-    # парсинг
     if data[0] == '0':
         print(data[1])
 
