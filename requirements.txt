@@ -1,2 +1,5 @@
 pyqt5
 pyqt5designer
+matplotlib
+numpy
+pandas
