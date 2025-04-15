@@ -23,8 +23,6 @@ def get_platform_suffix():
     system = platform.system().lower()
     if system == "windows":
         return ".exe"
-    elif system == "darwin":  # macOS
-        return ".app"
     else:  # Linux и другие
         return ""
 
