@@ -308,6 +308,15 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             self.ui.recordLength.setEnabled(False)
             self.ui.recordLengthTimeUnits.setEnabled(False)
             
+            # Настройка элементов управления графиком
+            self.ui.windowSize.valueChanged.connect(self.on_window_size_changed)
+            self.ui.yAxisRange.currentIndexChanged.connect(self.on_y_axis_range_changed)
+            self.ui.yAxisMin.valueChanged.connect(self.on_y_axis_min_changed)
+            self.ui.yAxisMax.valueChanged.connect(self.on_y_axis_max_changed)
+            
+            # Устанавливаем значение размера окна по умолчанию
+            self.window_size = self.ui.windowSize.value()
+            
             # Добавляем чекбокс под консолью
             self.ui.showValuesCheckBox = QtWidgets.QCheckBox("Выводить текущие значения")
             self.ui.showValuesCheckBox.setChecked(True)  # По умолчанию включен
@@ -493,13 +502,13 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         # Очищаем буфер
         self.buffered_data = []
         
-        # Обновляем график с окном 5 секунд
+        # Обновляем график с окном заданного размера
         if self.times and self.data:
             # Находим минимальное значение времени для окна
             current_time = self.times[-1]
             min_time = max(0, current_time - self.window_size)
             
-            # Фильтруем данные только для окна в 5 секунд
+            # Фильтруем данные только для окна заданного размера
             window_times = []
             window_data = []
             
@@ -518,14 +527,19 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             
             # Устанавливаем пределы графика
             self.ax.set_xlim(min_time, current_time)
-            # Если есть хотя бы два измерения, определяем диапазон по Y
-            if len(window_data) > 1:
-                min_voltage = min(window_data)
-                max_voltage = max(window_data)
-                padding = (max_voltage - min_voltage) * 0.1  # 10% отступ
-                if padding < 10:  # Минимальный отступ 10 мВ
-                    padding = 10
-                self.ax.set_ylim(min_voltage - padding, max_voltage + padding)
+            
+            # Настраиваем диапазон оси Y в зависимости от выбранного режима
+            if self.ui.yAxisRange.currentIndex() == 0:  # Динамически
+                # Если есть хотя бы два измерения, определяем диапазон по Y
+                if len(window_data) > 1:
+                    min_voltage = min(window_data)
+                    max_voltage = max(window_data)
+                    padding = (max_voltage - min_voltage) * 0.1  # 10% отступ
+                    if padding < 10:  # Минимальный отступ 10 мВ
+                        padding = 10
+                    self.ax.set_ylim(min_voltage - padding, max_voltage + padding)
+            else:  # Фиксированный диапазон
+                self.ax.set_ylim(self.ui.yAxisMin.value(), self.ui.yAxisMax.value())
             
             self.ax.set_xlabel('Время, с')
             self.ax.set_ylabel('Напряжение, мВ')
@@ -569,7 +583,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
                     self.ui.console.appendPlainText(f"Ошибка при подключении к {selected_port}")
                     self.ui.startButton.setEnabled(False)
                     self.ui.connectButton.setEnabled(True)
-    
+
     def connect_device(self):
         """Подключает устройство"""
         self.ui.connectButton.setEnabled(False)
@@ -637,7 +651,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             self.ui.connectButton.setEnabled(True)
             self.ui.comPortSelect.setEnabled(True)
             self.ui.refreshPortsButton.setEnabled(True)
-    
+
     def start_recording(self):
         if not self.recording:
             if not self.serial.isOpen():
@@ -813,6 +827,37 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         # Восстанавливаем выбранный порт, если он все еще доступен
         if current_port in ports:
             self.ui.comPortSelect.setCurrentText(current_port)
+
+    def on_window_size_changed(self, value):
+        """Обработчик изменения размера окна графика"""
+        self.window_size = value
+        self.ui.console.appendPlainText(f"Размер окна графика изменен на {value} секунд")
+        self.update_plot_from_buffer()  # Обновляем график с новым размером окна
+
+    def on_y_axis_range_changed(self, index):
+        """Обработчик изменения режима диапазона оси Y"""
+        is_dynamic = index == 0  # 0 - Динамически, 1 - Настроить
+        
+        # Включаем/отключаем элементы настройки диапазона
+        self.ui.yAxisMin.setEnabled(not is_dynamic)
+        self.ui.yAxisMax.setEnabled(not is_dynamic)
+        
+        if is_dynamic:
+            self.ui.console.appendPlainText("Диапазон оси Y установлен на динамический")
+        else:
+            self.ui.console.appendPlainText("Диапазон оси Y установлен на фиксированный")
+        
+        self.update_plot_from_buffer()  # Обновляем график с новыми настройками
+
+    def on_y_axis_min_changed(self, value):
+        """Обработчик изменения минимального значения оси Y"""
+        self.ui.console.appendPlainText(f"Минимальное значение оси Y изменено на {value} мВ")
+        self.update_plot_from_buffer()  # Обновляем график с новыми настройками
+
+    def on_y_axis_max_changed(self, value):
+        """Обработчик изменения максимального значения оси Y"""
+        self.ui.console.appendPlainText(f"Максимальное значение оси Y изменено на {value} мВ")
+        self.update_plot_from_buffer()  # Обновляем график с новыми настройками
 
 
 if __name__ == "__main__":
