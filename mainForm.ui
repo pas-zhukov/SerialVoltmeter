@@ -32,77 +32,22 @@
       <property name="maximumSize">
        <size>
         <width>550</width>
-        <height>160</height>
+        <height>150</height>
        </size>
       </property>
       <property name="title">
        <string>Параметры записи</string>
       </property>
       <layout class="QGridLayout" name="gridLayout">
-       <item row="1" column="4">
-        <widget class="QComboBox" name="recordLengthTimeUnits"/>
-       </item>
-       <item row="2" column="1">
-        <widget class="QPushButton" name="stopButton">
-         <property name="text">
-          <string>СТОП</string>
-         </property>
-        </widget>
-       </item>
        <item row="0" column="0">
-        <widget class="QLabel" name="label">
-         <property name="text">
-          <string>Диапазон напряжений, мВ ±</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="1">
-        <widget class="QComboBox" name="recordRange"/>
-       </item>
-       <item row="0" column="4">
-        <widget class="QComboBox" name="samplingTimeUnits">
-         <property name="currentText">
-          <string/>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="3">
-        <widget class="QSpinBox" name="sampling">
-         <property name="minimumSize">
-          <size>
-           <width>50</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="minimum">
-          <number>1</number>
-         </property>
-         <property name="maximum">
-          <number>3600</number>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="2">
         <widget class="QLabel" name="label_4">
-         <property name="minimumSize">
-          <size>
-           <width>150</width>
-           <height>0</height>
-          </size>
-         </property>
          <property name="text">
           <string>Продолжительность записи</string>
          </property>
         </widget>
        </item>
-       <item row="1" column="3">
+       <item row="0" column="1">
         <widget class="QSpinBox" name="recordLength">
-         <property name="minimumSize">
-          <size>
-           <width>50</width>
-           <height>0</height>
-          </size>
-         </property>
          <property name="minimum">
           <number>1</number>
          </property>
@@ -112,43 +57,70 @@
         </widget>
        </item>
        <item row="0" column="2">
-        <widget class="QLabel" name="label_3">
-         <property name="minimumSize">
-          <size>
-           <width>150</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>Дискретизация по времени</string>
-         </property>
-        </widget>
+        <widget class="QComboBox" name="recordLengthTimeUnits"/>
        </item>
        <item row="1" column="0">
-        <widget class="QLabel" name="label_2">
+        <widget class="QLabel" name="label_5">
          <property name="text">
-          <string>Дискретизация по Y, мВ</string>
+          <string>COM порт</string>
          </property>
         </widget>
        </item>
        <item row="1" column="1">
-        <widget class="QComboBox" name="recordSampling">
+        <widget class="QComboBox" name="comPortSelect">
+         <property name="editable">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="2">
+        <widget class="QPushButton" name="refreshPortsButton">
+         <property name="text">
+          <string>Обновить</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QPushButton" name="connectButton">
+         <property name="text">
+          <string>Подключиться</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QPushButton" name="disconnectButton">
+         <property name="text">
+          <string>Отключиться</string>
+         </property>
          <property name="enabled">
           <bool>false</bool>
          </property>
         </widget>
        </item>
-       <item row="2" column="0">
+       <item row="2" column="2">
         <widget class="QPushButton" name="startButton">
          <property name="text">
           <string>Начать измерение</string>
+         </property>
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="3">
+        <widget class="QPushButton" name="stopButton">
+         <property name="text">
+          <string>СТОП</string>
+         </property>
+         <property name="enabled">
+          <bool>false</bool>
          </property>
         </widget>
        </item>
       </layout>
      </widget>
     </item>
-    <item row="1" column="0" colspan="4">
+    <item row="1" column="0">
      <widget class="QGroupBox" name="plot">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -161,20 +133,7 @@
       </property>
      </widget>
     </item>
-    <item row="0" column="2">
-     <spacer name="horizontalSpacer">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>40</width>
-        <height>20</height>
-       </size>
-      </property>
-     </spacer>
-    </item>
-    <item row="2" column="0" colspan="4">
+    <item row="2" column="0">
      <widget class="QGroupBox" name="consoleBox">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -185,7 +144,7 @@
       <property name="maximumSize">
        <size>
         <width>16777215</width>
-        <height>225</height>
+        <height>150</height>
        </size>
       </property>
       <property name="title">
@@ -196,25 +155,6 @@
         <widget class="QPlainTextEdit" name="console"/>
        </item>
       </layout>
-     </widget>
-    </item>
-    <item row="0" column="1">
-     <widget class="QGroupBox" name="channelsConfig">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>550</width>
-        <height>160</height>
-       </size>
-      </property>
-      <property name="title">
-       <string>Настройки каналов</string>
-      </property>
      </widget>
     </item>
    </layout>
@@ -228,62 +168,18 @@
      <height>21</height>
     </rect>
    </property>
-   <widget class="QMenu" name="file">
+   <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>Файл</string>
     </property>
-    <addaction name="saveAs"/>
-    <addaction name="separator"/>
     <addaction name="exit"/>
    </widget>
-   <widget class="QMenu" name="settings">
-    <property name="title">
-     <string>Настройки</string>
-    </property>
-    <addaction name="connection"/>
-    <addaction name="serialChoice"/>
-   </widget>
-   <widget class="QMenu" name="help">
-    <property name="title">
-     <string>Помощь</string>
-    </property>
-    <addaction name="helpHelp"/>
-    <addaction name="separator"/>
-    <addaction name="about"/>
-   </widget>
-   <addaction name="file"/>
-   <addaction name="settings"/>
-   <addaction name="help"/>
+   <addaction name="menuFile"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
-  <action name="saveAs">
-   <property name="text">
-    <string>Сохранить как</string>
-   </property>
-  </action>
   <action name="exit">
    <property name="text">
     <string>Выход</string>
-   </property>
-  </action>
-  <action name="helpHelp">
-   <property name="text">
-    <string>Помощь</string>
-   </property>
-  </action>
-  <action name="about">
-   <property name="text">
-    <string>О программе</string>
-   </property>
-  </action>
-  <action name="connection">
-   <property name="text">
-    <string>Подключиться к прибору</string>
-   </property>
-  </action>
-  <action name="serialChoice">
-   <property name="text">
-    <string>Ручной выбор COM-порта</string>
    </property>
   </action>
  </widget>
