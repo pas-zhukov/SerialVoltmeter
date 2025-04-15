@@ -1,5 +1,4 @@
 pyqt5==5.15.11
-pyqt5designer==5.13.2
 matplotlib==3.7.1
 numpy==1.26.4
 pandas==2.0.2
