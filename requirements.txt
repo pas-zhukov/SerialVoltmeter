@@ -6,3 +6,4 @@ pyserial==3.5
 pyinstaller==5.13.1
 poetry==2.1.2
 pyqtgraph==0.13.3
+toml==0.10.2
