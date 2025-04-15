@@ -349,6 +349,9 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             
         except Exception as e:
             self.ui.console.appendPlainText(f"Ошибка при инициализации интерфейса: {str(e)}")
+        
+        # Подключаем обработчик закрытия окна
+        self.ui.closeEvent = self.closeEvent
     
     def open_file(self):
         """Открывает диалог выбора файла и отображает данные из файла"""
@@ -871,6 +874,53 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         """Обработчик изменения максимального значения оси Y"""
         self.ui.console.appendPlainText(f"Максимальное значение оси Y изменено на {value} мВ")
         self.update_plot_from_buffer()  # Обновляем график с новыми настройками
+
+    def exit(self):
+        """Обработчик выхода из программы через меню"""
+        self.check_exit()
+
+    def closeEvent(self, event):
+        """Обработчик закрытия окна по крестику"""
+        if self.check_exit():
+            event.accept()
+        else:
+            event.ignore()
+
+    def check_exit(self):
+        """Проверяет возможность выхода и запрашивает подтверждение"""
+        # Если идет запись, предупреждаем пользователя
+        if self.recording:
+            reply = QtWidgets.QMessageBox.question(
+                self.ui,
+                "Внимание",
+                "Сейчас идет запись данных. Вы уверены, что хотите выйти?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            if reply == QtWidgets.QMessageBox.No:
+                return False
+            # Останавливаем запись
+            self.stop_recording()
+        
+        # Запрашиваем подтверждение выхода
+        reply = QtWidgets.QMessageBox.question(
+            self.ui,
+            "Подтверждение",
+            "Вы уверены, что хотите выйти?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            # Закрываем все ресурсы
+            if self.serial.isOpen():
+                self.serial.close()
+            if hasattr(self, 'file') and self.file:
+                self.file.close()
+            # Завершаем приложение
+            sys.exit(0)
+            return True
+        return False
 
 
 def main():
