@@ -219,6 +219,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         self.record_timer = None     # Таймер для автоматической остановки записи
         self.timed_recording = False # Флаг записи по времени
         self.show_current_values = True  # Флаг отображения текущих значений
+        self.measurement_counter = 0  # Счетчик измерений для пропуска
         
         self.ui = uic.loadUi(resource_path("mainForm.ui"))
         self.ui.setWindowTitle("Serial Voltmeter")
@@ -489,6 +490,14 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
                         # Нормализуем время (от начала записи)
                         normalized_time = (time_ms - self.start_time) / 1000.0
                         
+                        # Проверяем, нужно ли пропустить это измерение
+                        skip_count = self.ui.skipMeasurements.value()
+                        if skip_count > 0:
+                            self.measurement_counter += 1
+                            if self.measurement_counter <= skip_count:
+                                continue
+                            self.measurement_counter = 0
+                        
                         # Добавляем данные в буфер (для графика)
                         self.buffered_data.append((normalized_time, voltage))
                         
@@ -682,6 +691,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             self.system_start_time = None
             self.received_data_count = 0
             self.saved_data_count = 0
+            self.measurement_counter = 0  # Сбрасываем счетчик измерений
             
             # Блокируем элементы настройки времени записи, пока идет запись
             if hasattr(self.ui, 'recordLength'):

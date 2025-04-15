@@ -4,7 +4,7 @@ requires-python = "3.10.*"
 
 [tool.poetry]
 name = "serial-voltmeter"
-version = "1.0.0"
+version = "1.1.0"
 description = "Приложение для записи и визуализации данных с Arduino-вольтметра через последовательный порт"
 authors = ["pas-zhukov"]
 readme = "README.md"
