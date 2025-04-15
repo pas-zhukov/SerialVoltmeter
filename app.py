@@ -18,7 +18,6 @@ import csv
 import sys
 import pyqtgraph as pg
 import math
-from scipy.signal import savgol_filter
 
 matplotlib.use('Qt5Agg')
 
@@ -33,84 +32,6 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-
-
-class SmoothSettingsDialog(QtWidgets.QDialog):
-    """Диалог настройки параметров сглаживания"""
-    def __init__(self, window_size, poly_order, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Настройки сглаживания")
-        self.window_size = window_size
-        self.poly_order = poly_order
-        
-        layout = QtWidgets.QFormLayout()
-        self.setLayout(layout)
-        
-        # Создаем спинбоксы для параметров
-        self.window_size_spin = QtWidgets.QSpinBox()
-        self.window_size_spin.setRange(3, 101)
-        self.window_size_spin.setSingleStep(2)
-        self.window_size_spin.setValue(window_size)
-        layout.addRow("Размер окна (нечетное число):", self.window_size_spin)
-        
-        self.poly_order_spin = QtWidgets.QSpinBox()
-        self.poly_order_spin.setRange(1, 10)
-        self.poly_order_spin.setValue(poly_order)
-        layout.addRow("Порядок полинома:", self.poly_order_spin)
-        
-        # Кнопки OK и Отмена
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-        
-        # Подключаем валидацию
-        self.window_size_spin.valueChanged.connect(self.validate_settings)
-    
-    def validate_settings(self):
-        """Проверяет корректность настроек"""
-        # Размер окна должен быть нечетным
-        if self.window_size_spin.value() % 2 == 0:
-            self.window_size_spin.setValue(self.window_size_spin.value() + 1)
-        
-        # Порядок полинома должен быть меньше размера окна
-        if self.poly_order_spin.value() >= self.window_size_spin.value():
-            self.poly_order_spin.setValue(self.window_size_spin.value() - 1)
-    
-    def get_settings(self):
-        """Возвращает выбранные настройки"""
-        return self.window_size_spin.value(), self.poly_order_spin.value()
-
-
-class AverageSettingsDialog(QtWidgets.QDialog):
-    """Диалог настройки параметров усреднения"""
-    def __init__(self, window_size, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Настройки усреднения")
-        self.window_size = window_size
-        
-        layout = QtWidgets.QFormLayout()
-        self.setLayout(layout)
-        
-        # Создаем спинбокс для размера окна
-        self.window_size_spin = QtWidgets.QSpinBox()
-        self.window_size_spin.setRange(2, 100)
-        self.window_size_spin.setValue(window_size)
-        layout.addRow("Размер окна усреднения:", self.window_size_spin)
-        
-        # Кнопки OK и Отмена
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-    
-    def get_settings(self):
-        """Возвращает выбранные настройки"""
-        return self.window_size_spin.value()
 
 
 class FileViewerWindow(QtWidgets.QDialog):
@@ -133,85 +54,12 @@ class FileViewerWindow(QtWidgets.QDialog):
         # Разрешаем изменение размера окна
         self.setSizeGripEnabled(True)
         
-        # Инициализируем данные
-        self.times = []
-        self.data = []
-        self.smoothed_data = None
-        self.averaged_data = None
-        self.window_size = 5  # Размер окна для сглаживания
-        self.poly_order = 2   # Порядок полинома для сглаживания
-        self.avg_window = 10  # Размер окна для усреднения
-        self.graph_title = ""  # Заголовок графика
-        
         self.setup_ui()
     
     def setup_ui(self):
         # Создаем основной layout
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
-        
-        # Создаем контейнер для кнопок с фиксированной шириной
-        buttons_container = QtWidgets.QWidget()
-        buttons_container.setFixedWidth(600)  # Увеличиваем ширину контейнера
-        
-        # Создаем меню в две строки
-        menu_layout = QtWidgets.QVBoxLayout()
-        menu_layout.setContentsMargins(0, 0, 0, 0)  # Убираем отступы
-        buttons_container.setLayout(menu_layout)
-        
-        # Верхняя строка - основные действия
-        top_buttons = QtWidgets.QHBoxLayout()
-        top_buttons.setSpacing(10)  # Отступ между кнопками
-        
-        # Создаем кнопки с фиксированной высотой и минимальной шириной
-        button_height = 40  # Высота кнопок в пикселях
-        
-        # Функция для создания кнопки с правильным размером
-        def create_button(text, callback):
-            button = QtWidgets.QPushButton(text, self)
-            button.setFixedHeight(button_height)
-            button.setMinimumWidth(150)  # Минимальная ширина кнопки
-            button.clicked.connect(callback)
-            return button
-        
-        # Создаем кнопки с помощью функции
-        smooth_button = create_button("Сгладить", self.smooth_data)
-        top_buttons.addWidget(smooth_button)
-        
-        average_button = create_button("Усреднить", self.average_data)
-        top_buttons.addWidget(average_button)
-        
-        combined_button = create_button("Сгладить и усреднить", self.combined_processing)
-        top_buttons.addWidget(combined_button)
-        
-        restore_button = create_button("Восстановить оригинал", self.restore_original)
-        top_buttons.addWidget(restore_button)
-        
-        # Нижняя строка - настройки и сохранение
-        bottom_buttons = QtWidgets.QHBoxLayout()
-        bottom_buttons.setSpacing(10)  # Отступ между кнопками
-        
-        smooth_settings_button = create_button("Настройки сглаживания", self.show_smooth_settings)
-        bottom_buttons.addWidget(smooth_settings_button)
-        
-        average_settings_button = create_button("Настройки усреднения", self.show_average_settings)
-        bottom_buttons.addWidget(average_settings_button)
-        
-        save_button = create_button("Сохранить данные", self.save_processed_data)
-        bottom_buttons.addWidget(save_button)
-        
-        # Добавляем строки кнопок в меню
-        menu_layout.addLayout(top_buttons)
-        menu_layout.addLayout(bottom_buttons)
-        
-        # Создаем горизонтальный layout для центрирования блока кнопок
-        buttons_layout = QtWidgets.QHBoxLayout()
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(buttons_container)
-        buttons_layout.addStretch()
-        
-        # Добавляем блок кнопок в основной layout
-        layout.addLayout(buttons_layout)
         
         # Создаем график matplotlib
         self.figure = Figure(figsize=(8, 6), dpi=100)
@@ -244,141 +92,21 @@ class FileViewerWindow(QtWidgets.QDialog):
         )
         
         # Устанавливаем минимальный размер окна
-        self.setMinimumSize(800, 400)  # Увеличиваем минимальную ширину окна
+        self.setMinimumSize(600, 400)
     
-    def smooth_data(self):
-        """Сглаживает данные с помощью фильтра Савицкого-Голея"""
-        if not self.times or not self.data:
-            return
-            
-        try:
-            # Сглаживаем данные
-            self.smoothed_data = savgol_filter(self.data, self.window_size, self.poly_order)
-            
-            # Обновляем график
-            self.ax.clear()
-            self.ax.plot(self.times, self.data, 'b-', alpha=0.3, label='Исходные данные')
-            self.ax.plot(self.times, self.smoothed_data, 'r-', label='Сглаженные данные')
-            self.ax.set_xlabel('Время, с')
-            self.ax.set_ylabel('Напряжение, мВ')
-            self.ax.grid(True)
-            self.ax.legend()
-            self.ax.set_title(self.graph_title)  # Восстанавливаем заголовок
-            
-            # Обновляем canvas
-            self.canvas.draw()
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Ошибка", f"Не удалось сгладить данные: {str(e)}")
-    
-    def average_data(self):
-        """Усредняет данные с помощью скользящего среднего"""
-        if not self.times or not self.data:
-            return
-            
-        try:
-            # Усредняем данные
-            self.averaged_data = np.convolve(self.data, np.ones(self.avg_window)/self.avg_window, mode='valid')
-            
-            # Создаем временную шкалу для усредненных данных
-            # Убираем точки с краев, где усреднение неполное
-            edge = self.avg_window // 2
-            avg_times = self.times[edge:-edge+1]
-            
-            # Обновляем график
-            self.ax.clear()
-            self.ax.plot(self.times, self.data, 'b-', alpha=0.3, label='Исходные данные')
-            self.ax.plot(avg_times, self.averaged_data, 'g-', label='Усредненные данные')
-            self.ax.set_xlabel('Время, с')
-            self.ax.set_ylabel('Напряжение, мВ')
-            self.ax.grid(True)
-            self.ax.legend()
-            self.ax.set_title(self.graph_title)  # Восстанавливаем заголовок
-            
-            # Обновляем canvas
-            self.canvas.draw()
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Ошибка", f"Не удалось усреднить данные: {str(e)}")
-    
-    def restore_original(self):
-        """Восстанавливает оригинальные данные на графике"""
-        if not self.times or not self.data:
-            return
-            
-        # Очищаем обработанные данные
-        self.smoothed_data = None
-        self.averaged_data = None
-        
-        # Обновляем график
-        self.ax.clear()
-        self.ax.plot(self.times, self.data, 'b-')
-        self.ax.set_xlabel('Время, с')
-        self.ax.set_ylabel('Напряжение, мВ')
-        self.ax.grid(True)
-        self.ax.set_title(self.graph_title)  # Восстанавливаем заголовок
-        
-        # Обновляем canvas
+    def resizeEvent(self, event):
+        """Обработчик изменения размера окна"""
+        super().resizeEvent(event)
+        # Обновляем график при изменении размера окна
+        self.figure.tight_layout()
         self.canvas.draw()
-    
-    def show_smooth_settings(self):
-        """Показывает диалог настройки параметров сглаживания"""
-        dialog = SmoothSettingsDialog(self.window_size, self.poly_order, self)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            self.window_size, self.poly_order = dialog.get_settings()
-            # Если есть сглаженные данные, применяем новые настройки
-            if self.smoothed_data is not None:
-                self.smooth_data()
-    
-    def show_average_settings(self):
-        """Показывает диалог настройки параметров усреднения"""
-        dialog = AverageSettingsDialog(self.avg_window, self)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            self.avg_window = dialog.get_settings()
-            # Если есть усредненные данные, применяем новые настройки
-            if self.averaged_data is not None:
-                self.average_data()
-    
-    def combined_processing(self):
-        """Применяет сглаживание и усреднение к данным"""
-        if not self.times or not self.data:
-            return
-            
-        try:
-            # Сначала сглаживаем данные
-            smoothed = savgol_filter(self.data, self.window_size, self.poly_order)
-            
-            # Затем усредняем сглаженные данные
-            edge = self.avg_window // 2
-            combined_data = np.convolve(smoothed, np.ones(self.avg_window)/self.avg_window, mode='valid')
-            combined_times = self.times[edge:-edge+1]
-            
-            # Обновляем график
-            self.ax.clear()
-            self.ax.plot(self.times, self.data, 'b-', alpha=0.3, label='Исходные данные')
-            self.ax.plot(combined_times, combined_data, 'r-', label='Обработанные данные')
-            self.ax.set_xlabel('Время, с')
-            self.ax.set_ylabel('Напряжение, мВ')
-            self.ax.grid(True)
-            self.ax.legend()
-            self.ax.set_title(self.graph_title)  # Восстанавливаем заголовок
-            
-            # Сохраняем обработанные данные
-            self.smoothed_data = smoothed
-            self.averaged_data = combined_data
-            
-            # Обновляем canvas
-            self.canvas.draw()
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Ошибка", f"Не удалось обработать данные: {str(e)}")
     
     def load_data(self, filename):
         """Загружает данные из файла CSV и отображает их на графике"""
         try:
             # Загружаем данные из CSV
-            self.times = []
-            self.data = []
+            data = []
+            times = []
             
             with open(filename, 'r') as f:
                 # Пропускаем заголовок
@@ -391,12 +119,12 @@ class FileViewerWindow(QtWidgets.QDialog):
                         try:
                             time_val = float(row[0])
                             voltage = float(row[1])
-                            self.times.append(time_val)
-                            self.data.append(voltage)
+                            times.append(time_val)
+                            data.append(voltage)
                         except (ValueError, IndexError):
                             pass
             
-            if not self.times or not self.data:
+            if not times or not data:
                 QtWidgets.QMessageBox.warning(self, "Ошибка", "Файл не содержит данных или имеет неверный формат")
                 return False
             
@@ -404,7 +132,7 @@ class FileViewerWindow(QtWidgets.QDialog):
             self.ax.clear()
             
             # Строим график
-            self.ax.plot(self.times, self.data, '-', linewidth=1)
+            self.ax.plot(times, data, '-', linewidth=1)
             
             # Настраиваем оси
             self.ax.set_xlabel('Время, с')
@@ -412,26 +140,25 @@ class FileViewerWindow(QtWidgets.QDialog):
             self.ax.grid(True)
             
             # Масштабируем график, чтобы видеть все данные
-            self.ax.set_xlim(min(self.times), max(self.times))
+            self.ax.set_xlim(min(times), max(times))
             
-            if len(self.data) > 1:
-                min_voltage = min(self.data)
-                max_voltage = max(self.data)
+            if len(data) > 1:
+                min_voltage = min(data)
+                max_voltage = max(data)
                 padding = (max_voltage - min_voltage) * 0.1
                 if padding < 10:
                     padding = 10
                 self.ax.set_ylim(min_voltage - padding, max_voltage + padding)
             
             # Заголовок графика
-            self.graph_title = f'Данные из файла: {os.path.basename(filename)}'
-            self.ax.set_title(self.graph_title)
+            self.ax.set_title(f'Данные из файла: {os.path.basename(filename)}')
             
             # Обновляем информационные метки
             self.file_info_label.setText(f"Файл: {os.path.basename(filename)}")
-            self.data_info_label.setText(f"Точек: {len(self.data)}")
+            self.data_info_label.setText(f"Точек: {len(data)}")
             
-            if self.times:
-                duration = max(self.times)
+            if times:
+                duration = max(times)
                 self.time_info_label.setText(f"Время записи: {duration:.1f} с")
             
             # Обновляем canvas
@@ -442,62 +169,6 @@ class FileViewerWindow(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить файл: {str(e)}")
             return False
-
-    def save_processed_data(self):
-        """Сохраняет обработанные данные в файл"""
-        if not self.times or not self.data:
-            QtWidgets.QMessageBox.warning(self, "Ошибка", "Нет данных для сохранения")
-            return
-            
-        # Определяем, какие данные сохранять
-        data_to_save = None
-        if self.smoothed_data is not None and self.averaged_data is not None:
-            # Если есть и сглаженные, и усредненные данные, сохраняем комбинированные
-            edge = self.avg_window // 2
-            data_to_save = self.averaged_data
-            times_to_save = self.times[edge:-edge+1]
-        elif self.smoothed_data is not None:
-            # Если есть только сглаженные данные
-            data_to_save = self.smoothed_data
-            times_to_save = self.times
-        elif self.averaged_data is not None:
-            # Если есть только усредненные данные
-            data_to_save = self.averaged_data
-            edge = self.avg_window // 2
-            times_to_save = self.times[edge:-edge+1]
-        else:
-            # Если нет обработанных данных, сохраняем исходные
-            data_to_save = self.data
-            times_to_save = self.times
-        
-        try:
-            # Запрашиваем имя файла для сохранения
-            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self,
-                "Сохранить обработанные данные",
-                "",
-                "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)"
-            )
-            
-            if filename:
-                # Сохраняем данные
-                with open(filename, 'w') as f:
-                    f.write("time,voltage\n")  # Заголовок
-                    for t, v in zip(times_to_save, data_to_save):
-                        f.write(f"{t},{v}\n")
-                
-                QtWidgets.QMessageBox.information(
-                    self,
-                    "Успех",
-                    f"Данные успешно сохранены в файл {filename}"
-                )
-                
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Не удалось сохранить данные: {str(e)}"
-            )
 
 
 class ComSelectorDialog(QtWidgets.QDialog):

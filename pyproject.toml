@@ -1,6 +1,6 @@
 [project]
 name = "serial-voltmeter"
-requires-python = "3.10.11"
+requires-python = "3.10.*"
 
 [tool.poetry]
 name = "serial-voltmeter"
@@ -11,7 +11,7 @@ readme = "README.md"
 packages = [{include = "app.py"}, {include = "build.py"}]
 
 [tool.poetry.dependencies]
-python = "3.10.11"
+python = "3.10.*"
 pyqt5-qt5 = "5.15.2"
 pyqt5 = "5.15.11"
 matplotlib = "3.7.1"
@@ -19,7 +19,6 @@ numpy = "1.26.4"
 pandas = "2.0.2"
 pyserial = "3.5"
 pyqtgraph = "0.13.7"
-scipy = "1.15.2"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = "5.13.1"
