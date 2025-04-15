@@ -5,6 +5,14 @@ import platform
 import re
 
 
+def setup_encoding():
+    """Настраивает кодировку для Windows"""
+    if platform.system() == 'Windows':
+        # Устанавливаем кодировку UTF-8 для Windows
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+
+
 def get_version():
     """Получает версию из pyproject.toml"""
     try:
@@ -83,4 +91,5 @@ def build_exe():
 
 
 if __name__ == "__main__":
+    setup_encoding()  # Настраиваем кодировку перед началом работы
     build_exe()

@@ -85,7 +85,15 @@ jobs:
       run: |
         $VERSION = poetry version -s
         echo "version=$VERSION" >> $env:GITHUB_OUTPUT
-    - name: Build executable
+    - name: Build executable (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        poetry run python build.py
+    - name: Build executable (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        PYTHONIOENCODING: utf-8
       run: |
         poetry run python build.py
 
