@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 
+
 def build_exe():
     """Сборка исполняемого файла с помощью PyInstaller"""
     print("Начинаем сборку исполняемого файла...")
@@ -42,5 +43,6 @@ def build_exe():
         print(f"Неизвестная ошибка: {e}")
         return False
 
+
 if __name__ == "__main__":
-    build_exe() 
+    build_exe()

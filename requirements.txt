@@ -1,7 +1,8 @@
-pyqt5==5.15.9
-pyqt5designer==5.15.9
+pyqt5==5.15.11
+pyqt5designer==5.14.1
 matplotlib==3.7.1
-numpy==1.24.3
+numpy==1.26.4
 pandas==2.0.2
 pyserial==3.5
-pyinstaller==5.13.0
+pyinstaller==5.13.1
+poetry==2.1.2

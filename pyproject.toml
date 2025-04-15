@@ -1,25 +1,30 @@
+[project]
+name = "serial-voltmeter"
+requires-python = "3.10.*"
+
 [tool.poetry]
 name = "serial-voltmeter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Приложение для записи и визуализации данных с Arduino-вольтметра через последовательный порт"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["pas-zhukov"]
 readme = "README.md"
-packages = [{include = "."}]
+packages = [{include = "app.py"}, {include = "build.py"}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
-pyqt5 = "^5.15.9"
-matplotlib = "^3.7.1"
-numpy = "^1.24.3"
-pandas = "^2.0.2"
-pyserial = "^3.5"
+python = "3.10.*"
+pyqt5-qt5 = "5.15.2"
+pyqt5 = "5.15.11"
+matplotlib = "3.7.1"
+numpy = "1.26.4"
+pandas = "2.0.2"
+pyserial = "3.5"
 
 [tool.poetry.group.dev.dependencies]
-pyinstaller = "^5.13.0"
+pyinstaller = "5.13.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-serial-voltmeter = "app:main" 
+serial-voltmeter = "app:main"
