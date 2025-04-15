@@ -113,91 +113,6 @@ class AverageSettingsDialog(QtWidgets.QDialog):
         return self.window_size_spin.value()
 
 
-class DataAnalyzer:
-    """Класс для анализа данных"""
-    def __init__(self, times, data):
-        self.times = np.array(times)
-        self.data = np.array(data)
-        
-    def get_basic_stats(self):
-        """Возвращает базовую статистику"""
-        return {
-            'mean': np.mean(self.data),
-            'median': np.median(self.data),
-            'std': np.std(self.data),
-            'min': np.min(self.data),
-            'max': np.max(self.data),
-            'range': np.ptp(self.data)
-        }
-    
-    def get_derivative(self):
-        """Вычисляет производную (скорость изменения)"""
-        return np.gradient(self.data, self.times)
-    
-    def remove_outliers(self, threshold=3):
-        """Удаляет выбросы на основе стандартного отклонения"""
-        z_scores = np.abs((self.data - np.mean(self.data)) / np.std(self.data))
-        mask = z_scores < threshold
-        return self.times[mask], self.data[mask]
-    
-    def apply_filter(self, filter_type='lowpass', cutoff=0.1):
-        """Применяет фильтр к данным"""
-        from scipy import signal
-        
-        if filter_type == 'lowpass':
-            b, a = signal.butter(4, cutoff)
-            filtered_data = signal.filtfilt(b, a, self.data)
-        elif filter_type == 'highpass':
-            b, a = signal.butter(4, cutoff, btype='high')
-            filtered_data = signal.filtfilt(b, a, self.data)
-        else:
-            return self.times, self.data
-            
-        return self.times, filtered_data
-    
-    def find_peaks(self, height=None, distance=None):
-        """Находит пики в данных"""
-        from scipy import signal
-        peaks, properties = signal.find_peaks(self.data, height=height, distance=distance)
-        return self.times[peaks], self.data[peaks]
-    
-    def get_trend(self):
-        """Вычисляет линейный тренд"""
-        z = np.polyfit(self.times, self.data, 1)
-        p = np.poly1d(z)
-        return self.times, p(self.times)
-
-
-class StatsDialog(QtWidgets.QDialog):
-    """Диалог для отображения статистики"""
-    def __init__(self, stats, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Статистика данных")
-        self.setup_ui(stats)
-        
-    def setup_ui(self, stats):
-        layout = QtWidgets.QVBoxLayout()
-        
-        # Создаем таблицу для статистики
-        table = QtWidgets.QTableWidget()
-        table.setColumnCount(2)
-        table.setRowCount(len(stats))
-        
-        # Заполняем таблицу
-        for i, (key, value) in enumerate(stats.items()):
-            table.setItem(i, 0, QtWidgets.QTableWidgetItem(key))
-            table.setItem(i, 1, QtWidgets.QTableWidgetItem(f"{value:.3f}"))
-        
-        layout.addWidget(table)
-        
-        # Кнопка закрытия
-        close_button = QtWidgets.QPushButton("Закрыть")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
-        
-        self.setLayout(layout)
-
-
 class FileViewerWindow(QtWidgets.QDialog):
     """Окно для просмотра файла записи с полным графиком и элементами навигации"""
     
@@ -227,7 +142,6 @@ class FileViewerWindow(QtWidgets.QDialog):
         self.poly_order = 2   # Порядок полинома для сглаживания
         self.avg_window = 10  # Размер окна для усреднения
         self.graph_title = ""  # Заголовок графика
-        self.analyzer = None
         
         self.setup_ui()
     
@@ -236,8 +150,9 @@ class FileViewerWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
         
-        # Создаем контейнер для кнопок
+        # Создаем контейнер для кнопок с фиксированной шириной
         buttons_container = QtWidgets.QWidget()
+        buttons_container.setFixedWidth(600)  # Увеличиваем ширину контейнера
         
         # Создаем меню в две строки
         menu_layout = QtWidgets.QVBoxLayout()
@@ -248,14 +163,14 @@ class FileViewerWindow(QtWidgets.QDialog):
         top_buttons = QtWidgets.QHBoxLayout()
         top_buttons.setSpacing(10)  # Отступ между кнопками
         
-        # Создаем кнопки с фиксированной высотой
+        # Создаем кнопки с фиксированной высотой и минимальной шириной
         button_height = 40  # Высота кнопок в пикселях
         
         # Функция для создания кнопки с правильным размером
         def create_button(text, callback):
             button = QtWidgets.QPushButton(text, self)
             button.setFixedHeight(button_height)
-            button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            button.setMinimumWidth(150)  # Минимальная ширина кнопки
             button.clicked.connect(callback)
             return button
         
@@ -285,25 +200,18 @@ class FileViewerWindow(QtWidgets.QDialog):
         save_button = create_button("Сохранить данные", self.save_processed_data)
         bottom_buttons.addWidget(save_button)
         
-        # Добавляем новые кнопки в нижнюю строку
-        stats_button = create_button("Статистика", self.show_stats)
-        bottom_buttons.addWidget(stats_button)
-        
-        peaks_button = create_button("Найти пики", self.find_peaks)
-        bottom_buttons.addWidget(peaks_button)
-        
-        trend_button = create_button("Тренд", self.show_trend)
-        bottom_buttons.addWidget(trend_button)
-        
-        filter_button = create_button("Фильтр", self.show_filter_dialog)
-        bottom_buttons.addWidget(filter_button)
-        
         # Добавляем строки кнопок в меню
         menu_layout.addLayout(top_buttons)
         menu_layout.addLayout(bottom_buttons)
         
+        # Создаем горизонтальный layout для центрирования блока кнопок
+        buttons_layout = QtWidgets.QHBoxLayout()
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(buttons_container)
+        buttons_layout.addStretch()
+        
         # Добавляем блок кнопок в основной layout
-        layout.addWidget(buttons_container)
+        layout.addLayout(buttons_layout)
         
         # Создаем график matplotlib
         self.figure = Figure(figsize=(8, 6), dpi=100)
@@ -529,9 +437,6 @@ class FileViewerWindow(QtWidgets.QDialog):
             # Обновляем canvas
             self.canvas.draw()
             
-            # Создаем анализатор данных
-            self.analyzer = DataAnalyzer(self.times, self.data)
-            
             return True
             
         except Exception as e:
@@ -593,115 +498,6 @@ class FileViewerWindow(QtWidgets.QDialog):
                 "Ошибка",
                 f"Не удалось сохранить данные: {str(e)}"
             )
-
-    def show_stats(self):
-        """Показывает диалог со статистикой"""
-        if not self.analyzer:
-            return
-            
-        stats = self.analyzer.get_basic_stats()
-        dialog = StatsDialog(stats, self)
-        dialog.exec_()
-    
-    def find_peaks(self):
-        """Находит и отмечает пики на графике"""
-        if not self.analyzer:
-            return
-            
-        peak_times, peak_values = self.analyzer.find_peaks()
-        
-        # Обновляем график
-        self.ax.clear()
-        self.ax.plot(self.times, self.data, 'b-', label='Данные')
-        self.ax.plot(peak_times, peak_values, 'ro', label='Пики')
-        self.ax.set_xlabel('Время, с')
-        self.ax.set_ylabel('Напряжение, мВ')
-        self.ax.grid(True)
-        self.ax.legend()
-        self.ax.set_title(self.graph_title)
-        
-        self.canvas.draw()
-    
-    def show_trend(self):
-        """Показывает линейный тренд"""
-        if not self.analyzer:
-            return
-            
-        trend_times, trend_values = self.analyzer.get_trend()
-        
-        # Обновляем график
-        self.ax.clear()
-        self.ax.plot(self.times, self.data, 'b-', label='Данные')
-        self.ax.plot(trend_times, trend_values, 'r--', label='Тренд')
-        self.ax.set_xlabel('Время, с')
-        self.ax.set_ylabel('Напряжение, мВ')
-        self.ax.grid(True)
-        self.ax.legend()
-        self.ax.set_title(self.graph_title)
-        
-        self.canvas.draw()
-    
-    def show_filter_dialog(self):
-        """Показывает диалог настройки фильтра"""
-        if not self.analyzer:
-            return
-            
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Настройки фильтра")
-        layout = QtWidgets.QVBoxLayout()
-        
-        # Выбор типа фильтра
-        filter_type = QtWidgets.QComboBox()
-        filter_type.addItems(['lowpass', 'highpass'])
-        layout.addWidget(QtWidgets.QLabel("Тип фильтра:"))
-        layout.addWidget(filter_type)
-        
-        # Настройка частоты среза
-        cutoff = QtWidgets.QDoubleSpinBox()
-        cutoff.setRange(0.001, 1.0)
-        cutoff.setValue(0.1)
-        cutoff.setSingleStep(0.01)
-        layout.addWidget(QtWidgets.QLabel("Частота среза:"))
-        layout.addWidget(cutoff)
-        
-        # Кнопки
-        buttons = QtWidgets.QHBoxLayout()
-        apply_button = QtWidgets.QPushButton("Применить")
-        cancel_button = QtWidgets.QPushButton("Отмена")
-        
-        buttons.addWidget(apply_button)
-        buttons.addWidget(cancel_button)
-        layout.addLayout(buttons)
-        
-        dialog.setLayout(layout)
-        
-        # Подключаем обработчики
-        apply_button.clicked.connect(lambda: self.apply_filter(
-            filter_type.currentText(),
-            cutoff.value()
-        ))
-        cancel_button.clicked.connect(dialog.reject)
-        
-        dialog.exec_()
-    
-    def apply_filter(self, filter_type, cutoff):
-        """Применяет фильтр к данным"""
-        if not self.analyzer:
-            return
-            
-        filtered_times, filtered_data = self.analyzer.apply_filter(filter_type, cutoff)
-        
-        # Обновляем график
-        self.ax.clear()
-        self.ax.plot(self.times, self.data, 'b-', alpha=0.3, label='Исходные данные')
-        self.ax.plot(filtered_times, filtered_data, 'r-', label='Отфильтрованные данные')
-        self.ax.set_xlabel('Время, с')
-        self.ax.set_ylabel('Напряжение, мВ')
-        self.ax.grid(True)
-        self.ax.legend()
-        self.ax.set_title(self.graph_title)
-        
-        self.canvas.draw()
 
 
 class ComSelectorDialog(QtWidgets.QDialog):
