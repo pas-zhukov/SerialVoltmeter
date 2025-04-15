@@ -15,10 +15,23 @@ import shutil
 import os
 import pandas as pd
 import csv
+import sys
+import pyqtgraph as pg
+import math
 
 matplotlib.use('Qt5Agg')
 
 from models import TimeUnits
+
+
+def resource_path(relative_path):
+    """Получает абсолютный путь к ресурсу, работает для dev и для PyInstaller"""
+    try:
+        # PyInstaller создает временную папку и хранит путь в _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 
 class FileViewerWindow(QtWidgets.QDialog):
@@ -163,7 +176,7 @@ class ComSelectorDialog(QtWidgets.QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ui = uic.loadUi("comSelector.ui", self)
+        self.ui = uic.loadUi(resource_path("comSelector.ui"), self)
         self.setWindowTitle("Выбор COM порта")
         
         # Заполняем список доступных портов
@@ -207,7 +220,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         self.timed_recording = False # Флаг записи по времени
         self.show_current_values = True  # Флаг отображения текущих значений
         
-        self.ui = uic.loadUi("mainForm.ui")
+        self.ui = uic.loadUi(resource_path("mainForm.ui"))
         self.ui.setWindowTitle("Serial Voltmeter")
         
         # Явно создаем меню, если оно не было создано при загрузке UI
