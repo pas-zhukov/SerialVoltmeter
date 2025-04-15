@@ -860,5 +860,10 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         self.update_plot_from_buffer()  # Обновляем график с новыми настройками
 
 
-if __name__ == "__main__":
+def main():
     app = SerialVoltmeterApp([])
+    return app.exec_()
+
+
+if __name__ == "__main__":
+    main()

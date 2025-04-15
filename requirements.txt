@@ -1,5 +1,7 @@
-pyqt5
-pyqt5designer
-matplotlib
-numpy
-pandas
+pyqt5==5.15.9
+pyqt5designer==5.15.9
+matplotlib==3.7.1
+numpy==1.24.3
+pandas==2.0.2
+pyserial==3.5
+pyinstaller==5.13.0
