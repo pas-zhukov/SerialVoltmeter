@@ -11,8 +11,18 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: ""
+          - os: windows-latest
+            artifact_suffix: ".exe"
+          - os: macos-latest
+            artifact_suffix: ".app"
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v4
@@ -25,13 +35,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install flake8 pytest
         pip install poetry
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        poetry install
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    - name: Get version
+      id: get_version
+      run: |
+        VERSION=$(poetry version -s)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
     - name: Build executable
       run: |
         poetry run python build.py
@@ -39,5 +54,5 @@ jobs:
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.6.2
       with:
-          name: SerialVoltmeter.exe
-          path: /dist
+          name: SerialVoltmeter-v${{ steps.get_version.outputs.version }}${{ matrix.artifact_suffix }}
+          path: dist/SerialVoltmeter-v${{ steps.get_version.outputs.version }}${{ matrix.artifact_suffix }}
