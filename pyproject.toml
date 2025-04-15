@@ -19,6 +19,7 @@ numpy = "1.26.4"
 pandas = "2.0.2"
 pyserial = "3.5"
 pyqtgraph = "0.13.7"
+toml = "0.10.2"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = "5.13.1"
