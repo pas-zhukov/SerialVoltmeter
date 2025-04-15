@@ -31,7 +31,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 serial-voltmeter = "app:main"
-
-[virtualenvs]
-create = true
-in-project = true
