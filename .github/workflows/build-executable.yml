@@ -46,7 +46,22 @@ jobs:
           libxcb-render-util0 \
           libxcb-xinerama0 \
           libxcb-xkb1 \
-          libxkbcommon-x11-0
+          libxkbcommon-x11-0 \
+          libfreetype6-dev \
+          libpng-dev \
+          libjpeg-dev \
+          libtiff-dev \
+          libopenjp2-7-dev \
+          libgif-dev \
+          libwebp-dev \
+          libharfbuzz-dev \
+          libfribidi-dev \
+          libxft-dev \
+          libfontconfig1-dev \
+          libblas-dev \
+          liblapack-dev \
+          libatlas-base-dev \
+          gfortran
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip

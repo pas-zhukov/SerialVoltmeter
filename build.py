@@ -60,6 +60,13 @@ def build_exe():
         "--add-data", f"mainForm.ui{os.pathsep}.",
         "--add-data", f"comSelector.ui{os.pathsep}.",
         "--add-data", f"models.py{os.pathsep}.",
+        "--hidden-import", "numpy",
+        "--hidden-import", "pandas",
+        "--hidden-import", "matplotlib",
+        "--hidden-import", "PyQt5",
+        "--hidden-import", "pyqtgraph",
+        "--hidden-import", "serial",
+        "--hidden-import", "serial.tools.list_ports",
         "app.py"
     ]
     
