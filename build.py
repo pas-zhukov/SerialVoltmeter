@@ -2,18 +2,20 @@ import os
 import subprocess
 import sys
 import platform
-import toml
+import re
 
 
 def get_version():
     """Получает версию из pyproject.toml"""
     try:
         with open("pyproject.toml", "r", encoding="utf-8") as f:
-            data = toml.load(f)
-            return data["tool"]["poetry"]["version"]
+            content = f.read()
+            match = re.search(r'version\s*=\s*"([^"]+)"', content)
+            if match:
+                return match.group(1)
     except Exception as e:
         print(f"ОШИБКА при чтении версии: {e}")
-        return "0.0.0"
+    return "0.0.0"
 
 
 def get_platform_suffix():
