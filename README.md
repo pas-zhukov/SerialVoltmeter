@@ -43,7 +43,7 @@ python app.py
 или с использованием Poetry:
 
 ```bash
-poetry run python app.py
+poetry run python ./app.py
 ```
 
 ## Сборка исполняемого файла
@@ -51,7 +51,7 @@ poetry run python app.py
 Для сборки исполняемого файла (.exe) используйте Poetry:
 
 ```bash
-poetry run pyinstaller --onefile --windowed app.py
+poetry run python ./build.py
 ```
 
 ## Структура проекта
