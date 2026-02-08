@@ -5,6 +5,7 @@
 # Serial порт
 SERIAL_BAUD_RATE = 115200
 SERIAL_TIMEOUT_MS = 100
+DEVICE_VERIFICATION_TIMEOUT_S = 5  # Таймаут проверки Arduino при подключении
 
 # Интервалы обновления (в миллисекундах)
 PLOT_UPDATE_INTERVAL_MS = 100  # Обновление графика

@@ -586,24 +586,39 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         if selected_port == "Авто":
             ports = [port.device for port in serial.tools.list_ports.comports()]
             if not ports:
-                self.ui.console.appendPlainText("ОШИБКА: Не найдены доступные COM-порты")
+                self.ui.console.appendPlainText("❌ ОШИБКА: Не найдены доступные COM-порты")
+                self.ui.console.appendPlainText("💡 Подключите Arduino к компьютеру")
                 logger.error("No COM ports found")
                 self.ui.connectButton.setEnabled(True)
                 return
             
+            self.ui.console.appendPlainText(f"🔍 Найдено портов: {len(ports)}, начинаю поиск Arduino...")
+            self.processEvents()
+            
             # Пробуем подключиться к каждому порту
-            for port in ports:
+            for i, port in enumerate(ports, 1):
                 try:
+                    self.ui.console.appendPlainText(f"   [{i}/{len(ports)}] Проверка {port}...")
+                    self.processEvents()
+                    
                     self.serial.setPortName(port)
                     if self.serial.open(QIODevice.ReadOnly):
+                        # _on_device_connected сам проверит устройство
                         self._on_device_connected(port)
-                        return
+                        
+                        # Если подключение успешно, выходим
+                        if self.serial.isOpen():
+                            return
                 except Exception as e:
-                    self.ui.console.appendPlainText(f"Ошибка при подключении к {port}: {str(e)}")
+                    self.ui.console.appendPlainText(f"   ⚠ {port}: {str(e)}")
                     logger.error(f"Failed to connect to {port}: {e}")
                     self.processEvents()
             
-            self.ui.console.appendPlainText("ОШИБКА: Не удалось подключиться ни к одному порту")
+            self.ui.console.appendPlainText("❌ ОШИБКА: Arduino не найдена ни на одном порту")
+            self.ui.console.appendPlainText("💡 Убедитесь что:")
+            self.ui.console.appendPlainText("   • Arduino подключена к USB")
+            self.ui.console.appendPlainText("   • Драйверы установлены")
+            self.ui.console.appendPlainText("   • Загружена правильная прошивка")
             logger.error("Failed to connect to any port")
             self.ui.connectButton.setEnabled(True)
         else:
@@ -612,19 +627,43 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
                 self.serial.setPortName(selected_port)
                 if self.serial.open(QIODevice.ReadOnly):
                     self._on_device_connected(selected_port)
+                    # Если подключение не удалось, кнопка уже восстановлена в _on_device_connected
                 else:
-                    self.ui.console.appendPlainText(f"Ошибка при подключении к {selected_port}")
+                    self.ui.console.appendPlainText(f"❌ Не удалось открыть порт {selected_port}")
+                    self.ui.console.appendPlainText(f"💡 Порт может быть занят другой программой")
                     logger.error(f"Failed to open port {selected_port}")
                     self.ui.connectButton.setEnabled(True)
             except Exception as e:
-                self.ui.console.appendPlainText(f"Ошибка при подключении к {selected_port}: {str(e)}")
+                self.ui.console.appendPlainText(f"❌ Ошибка при подключении к {selected_port}: {str(e)}")
                 logger.error(f"Exception connecting to {selected_port}: {e}")
                 self.ui.connectButton.setEnabled(True)
     
     def _on_device_connected(self, port: str):
         """Обработка успешного подключения к устройству"""
-        self.ui.console.appendPlainText(f"✓ Подключено к {port}")
-        logger.info(f"Connected to {port}")
+        self.ui.console.appendPlainText(f"🔌 Порт {port} открыт, проверка устройства...")
+        logger.info(f"Port {port} opened, checking device...")
+        self.processEvents()
+        
+        # Проверяем, что это действительно наш Arduino
+        if not self._verify_arduino_device():
+            self.ui.console.appendPlainText(f"❌ ОШИБКА: Arduino не отвечает на порту {port}")
+            self.ui.console.appendPlainText(f"💡 Возможные причины:")
+            self.ui.console.appendPlainText(f"   • Arduino не подключена")
+            self.ui.console.appendPlainText(f"   • Неправильная прошивка")
+            self.ui.console.appendPlainText(f"   • Неправильная скорость порта")
+            self.ui.console.appendPlainText(f"   • Устройство перезагружается")
+            logger.error(f"Arduino verification failed on port {port}")
+            
+            # Закрываем порт
+            if self.serial.isOpen():
+                self.serial.close()
+            
+            # Восстанавливаем кнопки
+            self.ui.connectButton.setEnabled(True)
+            return
+        
+        self.ui.console.appendPlainText(f"✓ Arduino успешно подключена к {port}")
+        logger.info(f"Arduino verified on {port}")
         
         # Создаем конфигуратор Arduino
         self.arduino_config = ArduinoConfig(self.serial)
@@ -648,6 +687,61 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         # Включаем пункт меню настройки Arduino
         if hasattr(self.ui, 'arduinoConfigAction'):
             self.ui.arduinoConfigAction.setEnabled(True)
+    
+    def _verify_arduino_device(self, timeout_seconds: int = DEVICE_VERIFICATION_TIMEOUT_S) -> bool:
+        """
+        Проверяет, что подключенное устройство - это наш Arduino с правильной прошивкой
+        
+        Args:
+            timeout_seconds: Максимальное время ожидания ответа
+            
+        Returns:
+            True если устройство отвечает правильно, False иначе
+        """
+        if not self.serial.isOpen():
+            return False
+        
+        logger.info(f"Verifying Arduino device, timeout={timeout_seconds}s")
+        start_time = time.time()
+        received_valid_data = False
+        
+        # Ждем данные или сообщения от Arduino
+        while time.time() - start_time < timeout_seconds:
+            # Проверяем наличие данных
+            if self.serial.waitForReadyRead(100):  # Ждем 100 мс
+                try:
+                    while self.serial.canReadLine():
+                        line = str(self.serial.readLine(), 'utf-8').strip()
+                        
+                        if not line:
+                            continue
+                        
+                        logger.debug(f"Received during verification: {line}")
+                        
+                        # Проверяем информационные сообщения от Arduino
+                        if line.startswith(('INFO:', 'READY:', 'WARNING:', 'ERROR:', 'CONFIG:')):
+                            logger.info(f"Arduino identified by message: {line}")
+                            return True
+                        
+                        # Проверяем формат данных измерений (counter,voltage)
+                        parts = line.split(',')
+                        if len(parts) == 2:
+                            try:
+                                counter = int(parts[0])
+                                voltage = float(parts[1])
+                                logger.info(f"Arduino identified by data format: counter={counter}, voltage={voltage}")
+                                return True
+                            except (ValueError, IndexError):
+                                pass
+                
+                except Exception as e:
+                    logger.debug(f"Error during verification: {e}")
+            
+            # Обрабатываем события для отзывчивости UI
+            self.processEvents()
+        
+        logger.warning(f"Arduino verification timeout after {timeout_seconds}s")
+        return False
 
     def disconnect_device(self):
         """Отключает устройство"""
