@@ -18,10 +18,24 @@ import csv
 import sys
 import pyqtgraph as pg
 import math
+import logging
 
 matplotlib.use('Qt5Agg')
 
 from models import TimeUnits
+from constants import *
+from serial_handler import SerialReaderThread, DataBuffer
+from file_handler import DataFileWriter, DataFileReader
+from plot_widget import PlotManager
+from arduino_config import ArduinoConfig, ArduinoConfigDialog
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+    datefmt=LOG_DATE_FORMAT
+)
+logger = logging.getLogger(__name__)
 
 
 def resource_path(relative_path):
@@ -104,28 +118,12 @@ class FileViewerWindow(QtWidgets.QDialog):
     def load_data(self, filename):
         """Загружает данные из файла CSV и отображает их на графике"""
         try:
-            # Загружаем данные из CSV
-            data = []
-            times = []
+            # Используем DataFileReader для чтения файла
+            times, data, error = DataFileReader.read_file(filename)
             
-            with open(filename, 'r') as f:
-                # Пропускаем заголовок
-                header = next(f)
-                
-                # Читаем данные
-                reader = csv.reader(f)
-                for row in reader:
-                    if len(row) >= 2:
-                        try:
-                            time_val = float(row[0])
-                            voltage = float(row[1])
-                            times.append(time_val)
-                            data.append(voltage)
-                        except (ValueError, IndexError):
-                            pass
-            
-            if not times or not data:
-                QtWidgets.QMessageBox.warning(self, "Ошибка", "Файл не содержит данных или имеет неверный формат")
+            if error:
+                QtWidgets.QMessageBox.warning(self, "Ошибка", error)
+                logger.error(f"Failed to load data from {filename}: {error}")
                 return False
             
             # Очищаем график
@@ -203,26 +201,41 @@ class ComSelectorDialog(QtWidgets.QDialog):
 class SerialVoltmeterApp(QtWidgets.QApplication):
     def __init__(self, argv: typing.List[str]):
         super().__init__(argv)
-        self.file = None
-        self.recording = False
-        self.data = []
-        self.times = []
-        self.start_time = None  # время начала в миллисекундах Arduino
-        self.system_start_time = None  # системное время начала записи
-        self.last_update_time = 0
-        self.buffered_data = []  # Буфер для данных
-        self.update_interval = 100  # Интервал обновления графика в мс
-        self.window_size = 5.0  # Размер окна графика в секундах
-        self.backup_filename = ""
-        self.received_data_count = 0  # Счетчик полученных данных
-        self.saved_data_count = 0    # Счетчик сохраненных данных
-        self.record_timer = None     # Таймер для автоматической остановки записи
-        self.timed_recording = False # Флаг записи по времени
-        self.show_current_values = True  # Флаг отображения текущих значений
-        self.measurement_counter = 0  # Счетчик измерений для пропуска
+        logger.info("Starting Serial Voltmeter application")
         
+        # Файл записи
+        self.file_writer = None
+        self.recording = False
+        
+        # Данные
+        self.data_buffer = DataBuffer(max_size=MAX_DATA_BUFFER_SIZE)
+        self.start_counter = None  # Начальный счетчик измерений
+        self.system_start_time = None  # Системное время начала записи
+        self.last_console_update_time = 0
+        
+        # Настройки
+        self.window_size = DEFAULT_WINDOW_SIZE_S
+        self.show_current_values = True
+        self.skip_measurements = 0
+        self.measurement_skip_counter = 0
+        
+        # Статистика
+        self.received_data_count = 0
+        self.saved_data_count = 0
+        
+        # Таймер записи
+        self.record_timer = None
+        self.timed_recording = False
+        
+        # Serial поток
+        self.serial_thread = None
+        
+        # Arduino конфигурация
+        self.arduino_config = None
+        
+        # UI
         self.ui = uic.loadUi(resource_path("mainForm.ui"))
-        self.ui.setWindowTitle("Serial Voltmeter")
+        self.ui.setWindowTitle("Serial Voltmeter v2.0")
         
         # Явно создаем меню, если оно не было создано при загрузке UI
         if not hasattr(self.ui, 'menubar') or not self.ui.menubar:
@@ -240,37 +253,28 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             self.ui.exit.triggered.connect(self.exit)
             self.ui.file.addAction(self.ui.exit)
         
+        # Serial порт
         self.serial = QSerialPort()
-        self.serial.setBaudRate(115200)
+        self.serial.setBaudRate(SERIAL_BAUD_RATE)
 
-        # Настройка графика
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        self.ax = self.figure.add_subplot(111)
-        self.ax.set_xlabel('Время, с')
-        self.ax.set_ylabel('Напряжение, мВ')
-        self.ax.grid(True)
-        
-        # Добавляем график в интерфейс
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self.canvas)
-        self.ui.plot.setLayout(layout)
+        # Настройка графика (используем pyqtgraph для производительности)
+        self.plot_manager = PlotManager(self.ui.plot, use_pyqtgraph=True)
 
         # Таймер для обновления графика
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_plot_from_buffer)
-        self.update_timer.start(self.update_interval)
+        self.update_timer.start(PLOT_UPDATE_INTERVAL_MS)
 
-        # Таймер для вывода статистики каждую секунду
+        # Таймер для вывода статистики
         self.stats_timer = QTimer()
         self.stats_timer.timeout.connect(self.show_stats)
-        self.stats_timer.start(1000)  # Каждую секунду
+        self.stats_timer.start(STATS_UPDATE_INTERVAL_MS)
 
         self.init_gui()
-        self.serial.readyRead.connect(self.parse_serial)
         self.lastWindowClosed.connect(self.stop_recording)
 
         self.ui.show()
+        logger.info("Application UI initialized")
         self.exec()
 
     def init_gui(self):
@@ -289,6 +293,21 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         self.ui.menuFile.insertAction(self.ui.exit, self.ui.open_file_action)
         # Добавляем разделитель
         self.ui.menuFile.insertSeparator(self.ui.exit)
+        
+        # Добавляем действие "Настройка Arduino" в меню (если есть меню настроек)
+        if hasattr(self.ui, 'menuSettings'):
+            self.ui.arduinoConfigAction = QtWidgets.QAction("⚙ Настройка Arduino и АЦП", self.ui)
+            self.ui.arduinoConfigAction.triggered.connect(self.show_arduino_config)
+            self.ui.arduinoConfigAction.setEnabled(False)  # Отключено до подключения
+            self.ui.menuSettings.addAction(self.ui.arduinoConfigAction)
+        else:
+            # Создаем меню настроек если его нет
+            self.ui.menuSettings = QtWidgets.QMenu("Настройки", self.ui.menubar)
+            self.ui.menubar.addMenu(self.ui.menuSettings)
+            self.ui.arduinoConfigAction = QtWidgets.QAction("⚙ Настройка Arduino и АЦП", self.ui)
+            self.ui.arduinoConfigAction.triggered.connect(self.show_arduino_config)
+            self.ui.arduinoConfigAction.setEnabled(False)
+            self.ui.menuSettings.addAction(self.ui.arduinoConfigAction)
         
         # Инициализируем список COM портов
         self.refresh_ports()
@@ -424,159 +443,105 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
 
     def show_stats(self):
         """Отображаем статистику полученных и сохраненных данных"""
-        if self.recording:
-            # Вычисляем прошедшее время на основе системного времени
-            elapsed_time = 0
-            if self.system_start_time:
-                current_time = time.time()
-                elapsed_time = current_time - self.system_start_time
+        if self.recording and self.system_start_time:
+            # Вычисляем прошедшее время
+            elapsed_time = time.time() - self.system_start_time
             
-            # Если запись по времени, показываем оставшееся время
-            remaining_text = ""
+            # Формируем строку статистики
+            stats_parts = [
+                f"📊 получено: {self.received_data_count}",
+                f"сохранено: {self.saved_data_count}",
+                f"время: {elapsed_time:.1f} с"
+            ]
+            
+            # Добавляем оставшееся время для записи по таймеру
             if self.timed_recording and self.record_timer and self.record_timer.isActive():
                 remaining_ms = self.record_timer.remainingTime()
                 if remaining_ms > 0:
                     remaining_sec = remaining_ms / 1000.0
-                    remaining_text = f", осталось: {remaining_sec:.1f} с"
+                    stats_parts.append(f"осталось: {remaining_sec:.1f} с")
             
-            self.ui.console.appendPlainText(
-                f"Статистика: получено измерений: {self.received_data_count}, "
-                f"сохранено в файл: {self.saved_data_count}, "
-                f"время записи: {elapsed_time:.1f} с{remaining_text}"
-            )
+            # Добавляем размер буфера
+            buffer_size = self.data_buffer.size()
+            stats_parts.append(f"буфер: {buffer_size} точек")
+            
+            self.ui.console.appendPlainText(" | ".join(stats_parts))
             self.processEvents()
 
-    def parse_serial(self):
-        # Обрабатываем все доступные данные
-        while self.serial.canReadLine():
-            try:
-                line = str(self.serial.readLine(), 'utf-8').strip()
-                
-                # Разбираем данные (формат: millis,voltage)
-                parts = line.split(',')
-                if len(parts) < 2:
-                    continue
-                
-                try:
-                    # Время в миллисекундах
-                    time_ms = int(parts[0])
-                    # Напряжение в милливольтах
-                    voltage = float(parts[1])
-                    
-                    # Преобразуем время в секунды
-                    time_sec = time_ms / 1000.0
-                    
-                    # Увеличиваем счетчик полученных данных
-                    self.received_data_count += 1
-                    
-                    # Выводим данные в консоль (не каждый раз, чтобы не перегружать)
-                    current_time = time.time()
-                    if current_time - self.last_update_time > 0.5 and self.show_current_values:  
-                        # Обновляем консоль каждые 0.5 секунды, если включен вывод текущих значений
-                        self.ui.console.appendPlainText(f"Время: {time_sec:.2f} с, Напряжение: {voltage:.2f} мВ")
-                        self.last_update_time = current_time
-                        # Обрабатываем события приложения, чтобы не зависало
-                        self.processEvents()
-                    
-                    # Если запись активна, добавляем данные
-                    if self.recording:
-                        # Если это первое измерение, запоминаем время начала
-                        if not self.times and self.start_time is None:
-                            self.start_time = time_ms
-                            # Запоминаем системное время начала записи
-                            if self.system_start_time is None:
-                                self.system_start_time = time.time()
-                        
-                        # Нормализуем время (от начала записи)
-                        normalized_time = (time_ms - self.start_time) / 1000.0
-                        
-                        # Проверяем, нужно ли пропустить это измерение
-                        skip_count = self.ui.skipMeasurements.value()
-                        if skip_count > 0:
-                            self.measurement_counter += 1
-                            if self.measurement_counter <= skip_count:
-                                continue
-                            self.measurement_counter = 0
-                        
-                        # Добавляем данные в буфер (для графика)
-                        self.buffered_data.append((normalized_time, voltage))
-                        
-                        # Записываем в файл сразу
-                        if self.file:
-                            self.file.write(f"{normalized_time},{voltage}\n")
-                            self.file.flush()  # Сбрасываем буфер файла
-                            self.saved_data_count += 1  # Увеличиваем счетчик сохраненных данных
-                    
-                except (ValueError, IndexError) as e:
-                    self.ui.console.appendPlainText(f"Ошибка при обработке данных: {str(e)}")
-                    self.processEvents()
-            except Exception as e:
-                self.ui.console.appendPlainText(f"Ошибка при чтении данных: {str(e)}")
-                self.processEvents()
+    def on_data_received(self, counter: int, voltage: float):
+        """Обработка полученных данных из Serial потока"""
+        self.received_data_count += 1
+        
+        # Вычисляем время в секундах
+        if self.start_counter is None:
+            self.start_counter = counter
+            self.system_start_time = time.time()
+        
+        time_sec = (counter - self.start_counter) * ARDUINO_SAMPLING_INTERVAL_MS / 1000.0
+        
+        # Выводим данные в консоль (не каждый раз)
+        current_time = time.time()
+        if current_time - self.last_console_update_time > CONSOLE_UPDATE_INTERVAL_S and self.show_current_values:
+            self.ui.console.appendPlainText(f"Время: {time_sec:.2f} с, Напряжение: {voltage:.2f} мВ")
+            self.last_console_update_time = current_time
+        
+        # Если запись активна, добавляем данные
+        if self.recording:
+            # Проверяем пропуск измерений
+            if self.skip_measurements > 0:
+                self.measurement_skip_counter += 1
+                if self.measurement_skip_counter % (self.skip_measurements + 1) != 0:
+                    return
+            
+            # Добавляем в буфер для графика
+            self.data_buffer.add_data(time_sec, voltage)
+            
+            # Записываем в файл
+            if self.file_writer and self.file_writer.is_open():
+                self.file_writer.write_measurement(time_sec, voltage)
+                self.saved_data_count += 1
+    
+    def on_serial_error(self, error_msg: str):
+        """Обработка ошибок из Serial потока"""
+        self.ui.console.appendPlainText(f"❌ Ошибка: {error_msg}")
+        logger.error(f"Serial error: {error_msg}")
+    
+    def on_info_message(self, message: str):
+        """Обработка информационных сообщений из Serial потока"""
+        self.ui.console.appendPlainText(message)
+    
+    def on_connection_lost(self):
+        """Обработка потери соединения"""
+        self.ui.console.appendPlainText("❌ Соединение потеряно!")
+        logger.error("Connection lost")
+        if self.recording:
+            self.stop_recording()
+        self.disconnect_device()
 
     def update_plot_from_buffer(self):
-        # Если нет новых данных, не обновляем график
-        if not self.buffered_data:
+        # Проверяем наличие данных
+        if self.data_buffer.size() == 0:
             return
-            
-        # Добавляем все буферизованные данные
-        for time_val, voltage in self.buffered_data:
-            self.times.append(time_val)
-            self.data.append(voltage)
-            
-        # Очищаем буфер
-        self.buffered_data = []
         
-        # Обновляем график с окном заданного размера
-        if self.times and self.data:
-            # Находим минимальное значение времени для окна
-            current_time = self.times[-1]
-            min_time = max(0, current_time - self.window_size)
-            
-            # Фильтруем данные только для окна заданного размера
-            window_times = []
-            window_data = []
-            
-            for i in range(len(self.times)):
-                if self.times[i] >= min_time:
-                    window_times.append(self.times[i])
-                    window_data.append(self.data[i])
-            
-            # Если данных нет в окне, выходим
-            if not window_times:
-                return
-                
-            # Обновляем график с фильтрованными данными
-            self.ax.clear()
-            self.ax.plot(window_times, window_data, 'b-')
-            
-            # Устанавливаем пределы графика
-            self.ax.set_xlim(min_time, current_time)
-            
-            # Настраиваем диапазон оси Y в зависимости от выбранного режима
-            if self.ui.yAxisRange.currentIndex() == 0:  # Динамически
-                # Если есть хотя бы два измерения, определяем диапазон по Y
-                if len(window_data) > 1:
-                    min_voltage = min(window_data)
-                    max_voltage = max(window_data)
-                    padding = (max_voltage - min_voltage) * 0.1  # 10% отступ
-                    if padding < 10:  # Минимальный отступ 10 мВ
-                        padding = 10
-                    self.ax.set_ylim(min_voltage - padding, max_voltage + padding)
-            else:  # Фиксированный диапазон
-                self.ax.set_ylim(self.ui.yAxisMin.value(), self.ui.yAxisMax.value())
-            
-            self.ax.set_xlabel('Время, с')
-            self.ax.set_ylabel('Напряжение, мВ')
-            self.ax.grid(True)
-            
-            # Подпись для скользящего окна с информацией о числе точек
-            points_in_window = len(window_times)
-            self.ax.set_title(f'Последние {self.window_size} секунд ({points_in_window} точек)')
-            
-            self.canvas.draw()
-            
-        # Обрабатываем события приложения
+        # Получаем данные для текущего окна
+        window_times, window_voltages = self.data_buffer.get_windowed_data(self.window_size)
+        
+        # Если данных нет в окне, выходим
+        if not window_times:
+            return
+        
+        # Обновляем график через PlotManager
+        y_mode = self.ui.yAxisRange.currentIndex()
+        y_min = self.ui.yAxisMin.value()
+        y_max = self.ui.yAxisMax.value()
+        
+        self.plot_manager.update_plot(
+            window_times, window_voltages,
+            self.window_size, y_mode, y_min, y_max
+        )
+        
+        # Обрабатываем события для отзывчивости интерфейса
+        # (pyqtgraph намного быстрее, поэтому не тормозит UI)
         self.processEvents()
 
     def show_com_selector(self):
@@ -622,6 +587,7 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             ports = [port.device for port in serial.tools.list_ports.comports()]
             if not ports:
                 self.ui.console.appendPlainText("ОШИБКА: Не найдены доступные COM-порты")
+                logger.error("No COM ports found")
                 self.ui.connectButton.setEnabled(True)
                 return
             
@@ -630,70 +596,103 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
                 try:
                     self.serial.setPortName(port)
                     if self.serial.open(QIODevice.ReadOnly):
-                        self.ui.console.appendPlainText(f"Подключено к {port}")
-                        self.ui.startButton.setEnabled(True)
-                        self.ui.connectButton.setEnabled(False)
-                        self.ui.disconnectButton.setEnabled(True)
-                        self.ui.comPortSelect.setEnabled(False)
-                        self.ui.refreshPortsButton.setEnabled(False)
-                        # Устанавливаем текущий порт в выпадающем списке
-                        self.ui.comPortSelect.setCurrentText(port)
+                        self._on_device_connected(port)
                         return
                 except Exception as e:
                     self.ui.console.appendPlainText(f"Ошибка при подключении к {port}: {str(e)}")
+                    logger.error(f"Failed to connect to {port}: {e}")
                     self.processEvents()
             
             self.ui.console.appendPlainText("ОШИБКА: Не удалось подключиться ни к одному порту")
+            logger.error("Failed to connect to any port")
             self.ui.connectButton.setEnabled(True)
         else:
             # Подключаемся к выбранному порту
             try:
                 self.serial.setPortName(selected_port)
                 if self.serial.open(QIODevice.ReadOnly):
-                    self.ui.console.appendPlainText(f"Подключено к {selected_port}")
-                    self.ui.startButton.setEnabled(True)
-                    self.ui.connectButton.setEnabled(False)
-                    self.ui.disconnectButton.setEnabled(True)
-                    self.ui.comPortSelect.setEnabled(False)
-                    self.ui.refreshPortsButton.setEnabled(False)
+                    self._on_device_connected(selected_port)
                 else:
                     self.ui.console.appendPlainText(f"Ошибка при подключении к {selected_port}")
+                    logger.error(f"Failed to open port {selected_port}")
                     self.ui.connectButton.setEnabled(True)
             except Exception as e:
                 self.ui.console.appendPlainText(f"Ошибка при подключении к {selected_port}: {str(e)}")
+                logger.error(f"Exception connecting to {selected_port}: {e}")
                 self.ui.connectButton.setEnabled(True)
+    
+    def _on_device_connected(self, port: str):
+        """Обработка успешного подключения к устройству"""
+        self.ui.console.appendPlainText(f"✓ Подключено к {port}")
+        logger.info(f"Connected to {port}")
+        
+        # Создаем конфигуратор Arduino
+        self.arduino_config = ArduinoConfig(self.serial)
+        
+        # Создаем и запускаем поток для чтения данных
+        self.serial_thread = SerialReaderThread(self.serial)
+        self.serial_thread.data_received.connect(self.on_data_received)
+        self.serial_thread.error_occurred.connect(self.on_serial_error)
+        self.serial_thread.info_message.connect(self.on_info_message)
+        self.serial_thread.connection_lost.connect(self.on_connection_lost)
+        self.serial_thread.start()
+        
+        # Обновляем интерфейс
+        self.ui.startButton.setEnabled(True)
+        self.ui.connectButton.setEnabled(False)
+        self.ui.disconnectButton.setEnabled(True)
+        self.ui.comPortSelect.setEnabled(False)
+        self.ui.refreshPortsButton.setEnabled(False)
+        self.ui.comPortSelect.setCurrentText(port)
+        
+        # Включаем пункт меню настройки Arduino
+        if hasattr(self.ui, 'arduinoConfigAction'):
+            self.ui.arduinoConfigAction.setEnabled(True)
 
     def disconnect_device(self):
         """Отключает устройство"""
         if self.recording:
             self.stop_recording()
         
+        # Останавливаем поток чтения
+        if self.serial_thread and self.serial_thread.isRunning():
+            self.serial_thread.stop()
+            self.serial_thread.wait(2000)  # Ждем до 2 секунд
+            logger.info("Serial reader thread stopped")
+        
+        # Закрываем порт
         if self.serial.isOpen():
             self.serial.close()
-            self.ui.console.appendPlainText("Устройство отключено")
-            self.ui.startButton.setEnabled(False)
-            self.ui.disconnectButton.setEnabled(False)
-            self.ui.connectButton.setEnabled(True)
-            self.ui.comPortSelect.setEnabled(True)
-            self.ui.refreshPortsButton.setEnabled(True)
+            self.ui.console.appendPlainText("✓ Устройство отключено")
+            logger.info("Device disconnected")
+            
+        # Обновляем интерфейс
+        self.ui.startButton.setEnabled(False)
+        self.ui.disconnectButton.setEnabled(False)
+        self.ui.connectButton.setEnabled(True)
+        self.ui.comPortSelect.setEnabled(True)
+        self.ui.refreshPortsButton.setEnabled(True)
 
     def start_recording(self):
         if not self.recording:
             if not self.serial.isOpen():
-                self.ui.console.appendPlainText("ОШИБКА: Сначала подключитесь к прибору")
+                self.ui.console.appendPlainText("❌ ОШИБКА: Сначала подключитесь к прибору")
+                logger.error("Attempted to start recording without connection")
                 return
                 
             self.recording = True
-            self.data = []
-            self.times = []
-            self.buffered_data = []
-            self.start_time = None
+            self.data_buffer.clear()
+            self.start_counter = None
             self.system_start_time = None
             self.received_data_count = 0
             self.saved_data_count = 0
-            self.measurement_counter = 0  # Сбрасываем счетчик измерений
+            self.measurement_skip_counter = 0
             
-            # Блокируем элементы настройки времени записи, пока идет запись
+            # Получаем значение пропуска измерений
+            self.skip_measurements = self.ui.skipMeasurements.value()
+            logger.info(f"Starting recording with skip={self.skip_measurements}")
+            
+            # Блокируем элементы настройки времени записи
             if hasattr(self.ui, 'recordLength'):
                 self.ui.recordLength.setEnabled(False)
             if hasattr(self.ui, 'recordLengthTimeUnits'):
@@ -706,59 +705,46 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             if hasattr(self.ui, 'timedRecordCheckBox') and self.ui.timedRecordCheckBox.isChecked():
                 self.timed_recording = True
                 
-                # Получаем время записи в миллисекундах
+                # Получаем время записи
                 record_length = self.ui.recordLength.value()
                 time_unit = self.ui.recordLengthTimeUnits.currentText()
                 
-                # Преобразуем время в миллисекунды
-                duration_ms = record_length * 1000  # По умолчанию в секундах
-                if time_unit == "минуты":
-                    duration_ms = record_length * 60 * 1000
-                elif time_unit == "часы":
-                    duration_ms = record_length * 60 * 60 * 1000
+                # Преобразуем в миллисекунды
+                multiplier = TIME_UNITS_MULTIPLIERS.get(time_unit, 1)
+                duration_ms = record_length * multiplier * 1000
                 
-                # Создаем таймер для автоматической остановки записи
+                # Создаем таймер для автоматической остановки
                 if self.record_timer is None:
                     self.record_timer = QTimer()
-                    self.record_timer.setSingleShot(True)  # Однократное срабатывание
+                    self.record_timer.setSingleShot(True)
                     self.record_timer.timeout.connect(self.stop_recording)
                 
-                # Запускаем таймер
                 self.record_timer.start(duration_ms)
-                
-                # Получаем человекочитаемое время для вывода
-                if time_unit == "секунды":
-                    time_text = f"{record_length} секунд"
-                elif time_unit == "минуты":
-                    time_text = f"{record_length} минут"
-                else:  # часы
-                    time_text = f"{record_length} часов"
-                
-                self.ui.console.appendPlainText(f"Начата запись на {time_text}")
+                self.ui.console.appendPlainText(f"⏱ Начата запись на {record_length} {time_unit}")
+                logger.info(f"Timed recording started: {record_length} {time_unit}")
             
-            # Генерируем имя файла на основе даты и времени
-            now = datetime.datetime.now()
-            self.backup_filename = f"measurements{now.strftime('%Y%m%d%H%M%S')}.csv"
-            
-            # Открываем файл для записи
-            try:
-                self.file = open(self.backup_filename, "w")
-                self.file.write("time,voltage\n")
-                self.file.flush()
-                self.ui.console.appendPlainText(f"Файл создан и готов к записи: {self.backup_filename}")
-            except Exception as e:
-                self.ui.console.appendPlainText(f"Ошибка при создании файла: {str(e)}")
+            # Создаем файл для записи
+            self.file_writer = DataFileWriter()
+            if not self.file_writer.open():
+                self.ui.console.appendPlainText("❌ Ошибка при создании файла записи")
+                logger.error("Failed to open data file")
                 self.recording = False
+                self.file_writer = None
                 return
             
+            self.ui.console.appendPlainText(f"📁 Файл создан: {self.file_writer.filename}")
+            logger.info(f"Recording started to file: {self.file_writer.filename}")
+            
+            # Обновляем интерфейс
             self.ui.startButton.setEnabled(False)
             self.ui.stopButton.setEnabled(True)
-            self.ui.console.appendPlainText(f"Начало записи данных в файл {self.backup_filename}")
-            self.processEvents()  # Обрабатываем события, чтобы интерфейс обновился
+            self.ui.console.appendPlainText("✓ Запись начата")
+            self.processEvents()
 
     def stop_recording(self):
         if self.recording:
             self.recording = False
+            logger.info("Stopping recording")
             
             # Разблокируем элементы настройки времени записи
             if hasattr(self.ui, 'recordLength'):
@@ -768,74 +754,73 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
             if hasattr(self.ui, 'timedRecordCheckBox'):
                 self.ui.timedRecordCheckBox.setEnabled(True)
                 
-                # После разблокировки применяем правило блокировки в зависимости от состояния чекбокса
+                # Применяем правило блокировки в зависимости от состояния чекбокса
                 is_checked = self.ui.timedRecordCheckBox.isChecked()
                 if hasattr(self.ui, 'recordLength'):
-                    self.ui.recordLength.setEnabled(not is_checked)
+                    self.ui.recordLength.setEnabled(is_checked)
                 if hasattr(self.ui, 'recordLengthTimeUnits'):
-                    self.ui.recordLengthTimeUnits.setEnabled(not is_checked)
+                    self.ui.recordLengthTimeUnits.setEnabled(is_checked)
             
-            # Останавливаем таймер записи, если он активен
+            # Останавливаем таймер записи
             if self.record_timer and self.record_timer.isActive():
                 self.record_timer.stop()
             
-            # Выводим информацию о причине остановки
+            # Выводим причину остановки
             if self.timed_recording:
-                self.ui.console.appendPlainText("Запись автоматически остановлена по истечении заданного времени")
+                self.ui.console.appendPlainText("⏱ Запись остановлена по таймеру")
+                logger.info("Recording stopped by timer")
             
-            if self.file:
-                try:
-                    self.file.close()
-                    
-                    # Вычисляем реальное время записи
-                    elapsed_time = 0
-                    if self.system_start_time:
-                        elapsed_time = time.time() - self.system_start_time
-                    
-                    self.ui.console.appendPlainText(
-                        f"Данные сохранены в файл {self.backup_filename} "
-                        f"(всего записано {self.saved_data_count} измерений за {elapsed_time:.1f} с)"
+            # Закрываем файл
+            if self.file_writer:
+                count, filename = self.file_writer.close()
+                
+                # Вычисляем время записи
+                elapsed_time = 0
+                if self.system_start_time:
+                    elapsed_time = time.time() - self.system_start_time
+                
+                self.ui.console.appendPlainText(
+                    f"💾 Сохранено {count} измерений за {elapsed_time:.1f} с в файл {filename}"
+                )
+                logger.info(f"Recording saved: {count} measurements in {elapsed_time:.1f}s")
+                
+                # Предлагаем сохранить под другим именем
+                if os.path.exists(filename):
+                    new_filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                        self.ui,
+                        "Сохранить файл как",
+                        "",
+                        "CSV Files (*.csv);;All Files (*)"
                     )
-                    
-                    # Предлагаем пользователю сохранить файл под другим именем
-                    if os.path.exists(self.backup_filename):
-                        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-                            self.ui,
-                            "Сохранить файл как",
-                            "",
-                            "CSV Files (*.csv);;Text Files (*.txt);;All Files (*)"
-                        )
-                        if filename:
-                            try:
-                                shutil.copy2(self.backup_filename, filename)
-                                self.ui.console.appendPlainText(f"Файл также сохранен как {filename}")
-                                
-                                # Предлагаем открыть файл для просмотра
-                                reply = QtWidgets.QMessageBox.question(
-                                    self.ui, 
-                                    "Просмотр данных",
-                                    "Открыть файл для просмотра?",
-                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                                    QtWidgets.QMessageBox.Yes
-                                )
-                                
-                                if reply == QtWidgets.QMessageBox.Yes:
-                                    # Создаем окно просмотра файла
-                                    viewer = FileViewerWindow(self.ui)
-                                    # Загружаем данные
-                                    if viewer.load_data(filename):
-                                        # Показываем окно, если данные успешно загружены
-                                        viewer.exec_()
-                                
-                            except Exception as e:
-                                self.ui.console.appendPlainText(f"Ошибка при сохранении файла: {str(e)}")
-                                
-                except Exception as e:
-                    self.ui.console.appendPlainText(f"Ошибка при закрытии файла: {str(e)}")
+                    if new_filename:
+                        try:
+                            shutil.copy2(filename, new_filename)
+                            self.ui.console.appendPlainText(f"💾 Файл скопирован: {new_filename}")
+                            logger.info(f"File copied to: {new_filename}")
+                            
+                            # Предлагаем открыть для просмотра
+                            reply = QtWidgets.QMessageBox.question(
+                                self.ui,
+                                "Просмотр данных",
+                                "Открыть файл для просмотра?",
+                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                QtWidgets.QMessageBox.Yes
+                            )
+                            
+                            if reply == QtWidgets.QMessageBox.Yes:
+                                viewer = FileViewerWindow(self.ui)
+                                if viewer.load_data(new_filename):
+                                    viewer.exec_()
+                        except Exception as e:
+                            self.ui.console.appendPlainText(f"❌ Ошибка копирования: {str(e)}")
+                            logger.error(f"Error copying file: {e}")
+                
+                self.file_writer = None
             
+            # Обновляем интерфейс
             self.ui.startButton.setEnabled(True)
             self.ui.stopButton.setEnabled(False)
-            self.ui.console.appendPlainText("Запись остановлена")
+            self.ui.console.appendPlainText("✓ Запись остановлена")
             self.processEvents()
 
     def refresh_ports(self):
@@ -853,12 +838,33 @@ class SerialVoltmeterApp(QtWidgets.QApplication):
         # Восстанавливаем выбранный порт, если он все еще доступен
         if current_port in ports:
             self.ui.comPortSelect.setCurrentText(current_port)
+    
+    def show_arduino_config(self):
+        """Показать диалог настройки Arduino"""
+        if not self.arduino_config:
+            QtWidgets.QMessageBox.warning(
+                self.ui,
+                "Ошибка",
+                "Arduino не подключен"
+            )
+            return
+        
+        if self.recording:
+            QtWidgets.QMessageBox.warning(
+                self.ui,
+                "Предупреждение",
+                "Невозможно изменить настройки во время записи"
+            )
+            return
+        
+        ArduinoConfigDialog.show_config_dialog(self.ui, self.arduino_config)
 
     def on_window_size_changed(self, value):
         """Обработчик изменения размера окна графика"""
         self.window_size = value
-        self.ui.console.appendPlainText(f"Размер окна графика изменен на {value} секунд")
-        self.update_plot_from_buffer()  # Обновляем график с новым размером окна
+        self.ui.console.appendPlainText(f"📏 Размер окна графика: {value} с")
+        logger.info(f"Plot window size changed to {value}s")
+        self.update_plot_from_buffer()
 
     def on_y_axis_range_changed(self, index):
         """Обработчик изменения режима диапазона оси Y"""
